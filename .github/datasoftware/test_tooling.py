@@ -204,6 +204,27 @@ MUTATIONS = [
         "WaitForStatus('Stopped')",
         "the service wait is bounded and ignores localised output",
     ),
+    (
+        "an upstream merge brings back the rustdesk/rustdesk download check",
+        "src/updater.rs",
+        "owner != crate::datasoftware::UPDATE_OWNER",
+        'owner != "rustdesk"',
+        "the updater's download URL check accepts our repository",
+    ),
+    (
+        "the review invitation no longer holds the timer's close",
+        "flutter/lib/models/server_model.dart",
+        "if (_clients.isEmpty && DataSoftwareReview.instance.holdsWindow()) {",
+        "if (false) {",
+        "the connection manager timer does not close under the invitation",
+    ),
+    (
+        "the review link becomes a plain http URL",
+        "flutter/lib/datasoftware_review.dart",
+        "kDataSoftwareGoogleReviewUrl = '",
+        "kDataSoftwareGoogleReviewUrl = 'http://example.com/",
+        "the review link is empty (off) or an https URL",
+    ),
 ]
 
 

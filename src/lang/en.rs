@@ -283,5 +283,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Access details for support", "Access details for support"),
         ("datasoftware_support_credentials_tip", "Send this ID and password to DataSoftware support. The password is permanent and will not be shown again."),
         ("datasoftware_id_pending", "The ID is still being assigned; you can find it in the main window."),
+        ("datasoftware_review_title", "Thank you for choosing DataSoftware"),
+        ("datasoftware_review_tip", "Would you rate our support on Google? Your review helps us improve, and it only takes a minute."),
+        ("datasoftware_review_open", "Rate us on Google"),
+        ("datasoftware_review_later", "Not now"),
+        ("datasoftware_review_never", "Don't ask again"),
     ].iter().cloned().collect();
 }

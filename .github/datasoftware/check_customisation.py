@@ -140,6 +140,22 @@ if updater:
         "OPTION_ALLOW_AUTO_UPDATE" in updater,
         "that is the option apply_builtin_config() enables",
     )
+    # Upstream 1.5.0 (#15529) only lets the updater download from
+    # rustdesk/rustdesk. Merged as is, every DataSoftware client rejects its own
+    # update URL and never updates again (that is what happened to 1.5.0-1).
+    check(
+        "the updater's download URL check accepts our repository",
+        "owner != crate::datasoftware::UPDATE_OWNER" in updater
+        and "repo != crate::datasoftware::UPDATE_REPO" in updater,
+        "get_update_download_file_from_url() must compare against "
+        "UPDATE_OWNER/UPDATE_REPO from src/datasoftware.rs",
+    )
+    check(
+        "the updater does not hard-code rustdesk/rustdesk as the owner",
+        re.search(r'owner\s*!=\s*"rustdesk"', updater) is None,
+        "an upstream merge brought the hard-coded owner back; clients would "
+        "refuse every DataSoftware update",
+    )
 else:
     check("src/updater.rs exists", False, "the Windows auto-updater is gone")
 
@@ -550,6 +566,73 @@ if ds:
         is not None,
         "switching disable-change-permanent-password on unconditionally stops "
         "the client from ever setting a permanent password in the first place",
+    )
+
+# --------------------------------------------------------------------------
+# 10b. The Dart half: Google review invitation after a session
+# --------------------------------------------------------------------------
+review = read("flutter/lib/datasoftware_review.dart")
+cm_main = read("flutter/lib/main.dart")
+cm_model = read("flutter/lib/models/server_model.dart")
+cm_page = read("flutter/lib/desktop/pages/server_page.dart")
+check(
+    "flutter/lib/datasoftware_review.dart exists",
+    review is not None,
+    "it shows the Google review invitation when a session ends",
+)
+# Each of these is a place where the connection manager hides or closes
+# itself. One missing hook and the window disappears under the invitation.
+check(
+    "hideCmWindow() keeps the window for the review invitation",
+    cm_main and re.search(
+        r"if\s*\(!isStartup\s*&&\s*DataSoftwareReview\.instance\.holdsWindow\(\)\)\s*return;",
+        cm_main,
+    ),
+    "the window would be hidden right after the last session",
+)
+check(
+    "the connection manager timer does not close under the invitation",
+    cm_model and re.search(
+        r"_clients\.isEmpty\s*&&\s*DataSoftwareReview\.instance\.holdsWindow\(\)",
+        cm_model,
+    ),
+    "the window would close 6 seconds after the last session",
+)
+check(
+    "closing the last tab does not close under the invitation",
+    cm_page and re.search(
+        r"tabs\.isEmpty\s*&&\s*DataSoftwareReview\.instance\.holdsWindow\(\)",
+        cm_page,
+    ),
+    "the window closes at once when the last session's tab goes",
+)
+check(
+    "the connection manager follows the sessions and shows the invitation",
+    cm_page
+    and "DataSoftwareReview.instance.attach(gFFI.serverModel)" in cm_page
+    and "dataSoftwareReviewOr(" in cm_page,
+    "without attach() no session is ever counted; without "
+    "dataSoftwareReviewOr() the window stays open but empty",
+)
+if review:
+    m = re.search(r"kDataSoftwareGoogleReviewUrl\s*=\s*'([^']*)'", review)
+    check(
+        "the review link is empty (off) or an https URL",
+        m is not None and (m.group(1) == "" or m.group(1).startswith("https://")),
+        "launchUrl() opens whatever is configured here in the customer's "
+        "browser",
+    )
+for lang in ("en", "sk"):
+    src = read("src/lang/%s.rs" % lang) or ""
+    missing = [
+        k
+        for k in ("title", "tip", "open", "later", "never")
+        if '("datasoftware_review_%s"' % k not in src
+    ]
+    check(
+        "src/lang/%s.rs has the review invitation texts" % lang,
+        not missing,
+        "missing: %s; the customer would see the raw keys" % ", ".join(missing),
     )
 
 # --------------------------------------------------------------------------

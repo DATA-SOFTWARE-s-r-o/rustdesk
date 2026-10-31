@@ -219,6 +219,49 @@ Dialog strings are translated; Slovak lives in `src/lang/sk.rs`, English in
 
 ---
 
+## 1c. Google review invitation after a session
+
+When a support session ends, the connection manager — the small window the
+customer sees during a session — stays open and invites the customer to review
+DataSoftware on Google, instead of closing. Everything lives in
+`flutter/lib/datasoftware_review.dart`.
+
+It is one neutral invitation for everybody. Google's review policy forbids
+asking only satisfied customers, so there is deliberately no star rating in
+front of it that would send only good ratings to Google.
+
+It appears only when all of these hold:
+
+- `kDataSoftwareGoogleReviewUrl` is set (empty turns the feature off),
+- an accepted remote-control session of at least 3 minutes has ended — file
+  transfers, terminals, camera views and port forwards do not count,
+- no other session is still running and the window is not hidden by the "hide
+  connection manager" option,
+- this Windows user has neither opened the review nor chosen "Don't ask again",
+  and was not invited in the last 30 days.
+
+It closes on its own after 10 minutes, so it does not linger on unattended
+machines. The state is two local options of the Windows user:
+`datasoftware-review-done` (`Y`) and `datasoftware-review-last-shown` (epoch
+milliseconds). To see it again while testing, delete both lines from
+`%APPDATA%\DataSoftware-Remote\config\DataSoftware-Remote_local.toml`.
+
+The connection manager hides or closes itself in three places after the last
+session; each carries a hook that asks `holdsWindow()` first:
+
+| File | Place | Without the hook |
+|---|---|---|
+| `flutter/lib/main.dart` | `hideCmWindow()` | hidden right after the session |
+| `flutter/lib/models/server_model.dart` | timer callback | closed after 6 seconds |
+| `flutter/lib/desktop/pages/server_page.dart` | `onRemoveId()` | closed with the last tab |
+
+`server_page.dart` also calls `attach()` in the state constructor, which is how
+sessions are counted, and wraps the "Waiting" text in `dataSoftwareReviewOr()`,
+which shows the invitation in its place. `check_customisation.py` checks all of
+these.
+
+---
+
 ## 2. How the server configuration is implemented
 
 `src/datasoftware.rs::apply_builtin_config()` is called from
@@ -299,6 +342,16 @@ names must keep the upstream `rustdesk-*` pattern.
 
 There is **no fallback** to `rustdesk/rustdesk` or to `api.rustdesk.com`: if the
 GitHub lookup fails, the check simply fails and is retried later.
+
+**Step 4 has one change too, since 1.5.0.** Upstream #15529 made
+`get_update_download_file_from_url()` in `src/updater.rs` accept only
+`github.com/rustdesk/rustdesk/releases/download/...`. Merged unchanged, it made
+**1.5.0-1 reject its own update URL**: such a client downloads nothing and has
+to be updated by hand once. The check now compares against `UPDATE_OWNER` and
+`UPDATE_REPO`, so it accepts our repository and still refuses the official one.
+`datasoftware::tests::the_updater_accepts_our_release_assets_and_only_ours`
+and two checks in `check_customisation.py` fail if a merge brings the old
+check back.
 
 Side effects, both intentional:
 

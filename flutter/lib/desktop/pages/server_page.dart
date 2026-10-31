@@ -18,6 +18,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
+import '../../datasoftware_review.dart';
 import '../../models/file_model.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
@@ -47,6 +48,11 @@ class _DesktopServerPageState extends State<DesktopServerPage>
     tabController.onRemoved = (_, id) {
       onRemoveId(id);
     };
+    // >>> DataSoftware custom client >>>
+    // Follow the sessions for the review invitation. See
+    // flutter/lib/datasoftware_review.dart.
+    DataSoftwareReview.instance.attach(gFFI.serverModel);
+    // <<< DataSoftware custom client <<<
   }
 
   @override
@@ -78,6 +84,12 @@ class _DesktopServerPageState extends State<DesktopServerPage>
   }
 
   void onRemoveId(String id) {
+    // >>> DataSoftware custom client >>>
+    if (tabController.state.value.tabs.isEmpty &&
+        DataSoftwareReview.instance.holdsWindow()) {
+      return;
+    }
+    // <<< DataSoftware custom client <<<
     if (tabController.state.value.tabs.isEmpty) {
       windowManager.close();
     }
@@ -188,9 +200,11 @@ class ConnectionManagerState extends State<ConnectionManager>
             children: [
               buildTitleBar(),
               Expanded(
-                child: Center(
+                // >>> DataSoftware custom client: review invitation >>>
+                child: dataSoftwareReviewOr(Center(
                   child: Text(translate("Waiting")),
-                ),
+                )),
+                // <<< DataSoftware custom client <<<
               ),
             ],
           )

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/datasoftware_review.dart';
 import 'package:flutter_hbb/main.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
@@ -162,6 +163,13 @@ class ServerModel with ChangeNotifier {
           debugPrint("clients not match!");
           updateClientState(res);
         } else {
+          // >>> DataSoftware custom client >>>
+          // The review invitation keeps the window, so do not count down to
+          // closing it. See flutter/lib/datasoftware_review.dart.
+          if (_clients.isEmpty && DataSoftwareReview.instance.holdsWindow()) {
+            _zeroClientLengthCounter = 0;
+          } else
+          // <<< DataSoftware custom client <<<
           if (_clients.isEmpty) {
             hideCmWindow();
             if (_zeroClientLengthCounter++ == 12) {
