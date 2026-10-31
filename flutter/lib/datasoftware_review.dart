@@ -37,9 +37,12 @@ import 'package:flutter_hbb/models/server_model.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-/// The "Ask for reviews" link of the DataSoftware Google Business Profile,
-/// such as `https://g.page/r/.../review`. Empty turns the invitation off.
-const String kDataSoftwareGoogleReviewUrl = '';
+/// Google's "write a review" form for the DataSoftware business profile
+/// ("Data software,s.r.o.", Poprad). Google's own "Ask for reviews" link
+/// (`https://g.page/r/.../review`) works as well. Empty turns the invitation
+/// off.
+const String kDataSoftwareGoogleReviewUrl =
+    'https://search.google.com/local/writereview?placeid=ChIJ3_YpZjUlPkcRLJT5VsglTag';
 
 const Duration _minSession = Duration(minutes: 3);
 const Duration _interval = Duration(days: 30);

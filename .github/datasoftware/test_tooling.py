@@ -221,8 +221,8 @@ MUTATIONS = [
     (
         "the review link becomes a plain http URL",
         "flutter/lib/datasoftware_review.dart",
-        "kDataSoftwareGoogleReviewUrl = '",
-        "kDataSoftwareGoogleReviewUrl = 'http://example.com/",
+        "kDataSoftwareGoogleReviewUrl =",
+        "kDataSoftwareGoogleReviewUrl = 'http://example.com/' +",
         "the review link is empty (off) or an https URL",
     ),
 ]
