@@ -37,12 +37,14 @@ import 'package:flutter_hbb/models/server_model.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-/// Google's "write a review" form for the DataSoftware business profile
-/// ("Data software,s.r.o.", Poprad). Google's own "Ask for reviews" link
-/// (`https://g.page/r/.../review`) works as well. Empty turns the invitation
-/// off.
+/// The "Ask for reviews" link of the DataSoftware Google profile ("Data
+/// software,s.r.o."). It opens the review form straight away, unlike
+/// `search.google.com/local/writereview?placeid=`, which only opens the
+/// profile. The code is base64url of `09 <CID, 8 bytes LE> 10 01`, CID
+/// 0xa84d25c856f9942c; Google redirects it to the profile with the review
+/// action (`!12e1`). Empty turns the invitation off.
 const String kDataSoftwareGoogleReviewUrl =
-    'https://search.google.com/local/writereview?placeid=ChIJ3_YpZjUlPkcRLJT5VsglTag';
+    'https://g.page/r/CSyU-VbIJU2oEAE/review';
 
 const Duration _minSession = Duration(minutes: 3);
 const Duration _interval = Duration(days: 30);
