@@ -394,8 +394,10 @@ pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
     let tag = segments.next()?;
     let filename = segments.next()?;
 
-    if owner != "rustdesk"
-        || repo != "rustdesk"
+    // >>> DataSoftware: only our own repository serves updates, and never
+    // rustdesk/rustdesk. See src/datasoftware.rs. <<<
+    if owner != crate::datasoftware::UPDATE_OWNER
+        || repo != crate::datasoftware::UPDATE_REPO
         || releases != "releases"
         || download != "download"
         || tag.is_empty()
@@ -679,9 +681,12 @@ mod tests {
 
     #[test]
     fn update_download_file_accepts_expected_github_asset_urls() {
-        let file = get_download_file_from_url(
-            "https://github.com/rustdesk/rustdesk/releases/download/1.4.0/rustdesk-1.4.0-x86_64.dmg",
-        )
+        // DataSoftware: our repository instead of rustdesk/rustdesk.
+        let file = get_download_file_from_url(&format!(
+            "https://github.com/{}/{}/releases/download/1.4.0/rustdesk-1.4.0-x86_64.dmg",
+            crate::datasoftware::UPDATE_OWNER,
+            crate::datasoftware::UPDATE_REPO
+        ))
         .expect("valid GitHub release asset URL");
 
         assert_eq!(

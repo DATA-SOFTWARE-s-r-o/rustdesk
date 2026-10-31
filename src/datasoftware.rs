@@ -448,6 +448,24 @@ mod tests {
         );
     }
 
+    // The updater refuses any download URL its own validator rejects. Upstream
+    // 1.5.0 hard-coded rustdesk/rustdesk there (#15529), so 1.5.0-1 rejected
+    // its own updates; this fails if an upstream merge brings that back.
+    #[test]
+    fn the_updater_accepts_our_release_assets_and_only_ours() {
+        let ours = format!(
+            "{}/rustdesk-1.5.0-2-x86_64.msi",
+            release_tag_url("1.5.0-2").replace("tag", "download")
+        );
+        assert!(
+            crate::updater::get_download_file_from_url(&ours).is_some(),
+            "{ours}"
+        );
+        let official =
+            "https://github.com/rustdesk/rustdesk/releases/download/1.5.0/rustdesk-1.5.0-x86_64.msi";
+        assert!(crate::updater::get_download_file_from_url(official).is_none());
+    }
+
     // A DataSoftware release must compare as newer than the upstream base
     // version, otherwise `do_check_software_update()` never offers it.
     #[test]
