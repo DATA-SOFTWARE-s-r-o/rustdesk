@@ -758,11 +758,42 @@ python3 build.py --portable --flutter --skip-portable-pack --hwcodec --vram
    git push origin datasoftware-custom-client 1.4.9-2
    ```
 5. The workflow builds and publishes the release with both assets.
-6. Verify the release is **not** marked as a pre-release and that both
-   `rustdesk-1.4.9-2-x86_64.exe` and `.msi` are attached.
+6. Wait for **DataSoftware Remote - update e2e** to go green (it starts on its
+   own, see below). Do not announce the release before that.
 
 Existing clients pick it up within a day (first check 30 s after start, then
 every 24 h, skipped while a session is active).
+
+### Update end-to-end test
+
+1.5.0-1 passed every check and test, was published, and then refused every
+update after it (section 3). Two guards exist because of that:
+
+- **Before publishing**, `this_build_can_update_to_its_next_release()` in
+  `src/datasoftware.rs` takes this build's own `VERSION`, makes up the next
+  release (`-N+1` and `99.0.0-1`), and requires that it compares newer and that
+  the updater's download check accepts both its asset URLs. The checker fails
+  the build if the test is removed or if `check_update()` stops validating the
+  URL through `get_download_file_from_url()`, which is what the test calls.
+- **After publishing**, `.github/workflows/datasoftware-update-e2e.yml` runs
+  when the release workflow finishes a tag build:
+  - `published-release` — the tag is `/releases/latest` both in this
+    repository and in the one the tag's clients ask (`UPDATE_OWNER` /
+    `UPDATE_REPO`), and both files download from the URLs the updater builds.
+  - `customer-pc` — a clean Windows runner installs the previous release from
+    its MSI and nobody touches it. Within 25 minutes the auto-updater alone
+    must have moved it to the new release, the installed exe must report it,
+    and the service must be running. The client logs are uploaded as an
+    artifact either way.
+
+  It picks the previous release by itself. When there is none, for example the
+  first release in a new repository, run it by hand with `from-repo` and
+  `from-tag` (Actions → DataSoftware Remote - update e2e → Run workflow).
+
+A red e2e run means customers are not getting the release. Fix it before
+announcing the release. The first guard cannot see an upstream change that
+stops the update after the URL check passes (download, `--update`, the service
+restart). Only the second one catches that.
 
 ---
 
