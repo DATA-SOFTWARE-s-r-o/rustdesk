@@ -1,0 +1,211 @@
+# ===========================================================================
+# DataSoftware Remote - update end-to-end test
+# ===========================================================================
+#
+# 1.5.0-1 built, passed every test, was published - and then could not take a
+# single update. Unit tests check the pieces; this checks the whole path the
+# way a customer's PC walks it:
+#
+# 1. published-release: the release is what /releases/latest returns, both in
+#    this repository and in the one this tag's clients ask (UPDATE_OWNER /
+#    UPDATE_REPO), and both files download from the exact URLs the updater
+#    builds.
+# 2. customer-pc: a clean Windows machine installs the PREVIOUS release from its
+#    MSI, nobody touches it, and it must end up on the new release through the
+#    auto-updater alone.
+#
+# Runs after every tagged release build and on demand. A red run means
+# customers are not getting the release: fix it before announcing anything.
+# See DATASOFTWARE_BUILD.md, "Update end-to-end test".
+
+name: DataSoftware Remote - update e2e
+
+on:
+  workflow_run:
+    workflows: ["DataSoftware Remote - Windows"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      expect:
+        description: "Release the client must end up on. Defaults to the latest release of this repository."
+        type: string
+        default: ""
+      from-repo:
+        description: "owner/repo of the release installed first. Defaults to this repository."
+        type: string
+        default: ""
+      from-tag:
+        description: "Release installed first. Defaults to the newest other release of from-repo."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    # Only tag pushes publish a release; a manual test build does not.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    outputs:
+      expect: ${{ steps.r.outputs.expect }}
+      from-repo: ${{ steps.r.outputs.from_repo }}
+      from-tag: ${{ steps.r.outputs.from_tag }}
+    steps:
+      - id: r
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.expect }}
+          FROM_REPO: ${{ inputs.from-repo }}
+          FROM_TAG: ${{ inputs.from-tag }}
+        run: |
+          set -euo pipefail
+          [ -n "$EXPECT" ] || EXPECT=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          FROM_REPO=${FROM_REPO:-$GITHUB_REPOSITORY}
+          if [ -z "$FROM_TAG" ]; then
+            FROM_TAG=$(gh api "repos/$FROM_REPO/releases?per_page=30" --jq \
+              "[.[] | select(.draft | not) | select(.prerelease | not) | select(.tag_name != \"$EXPECT\")][0].tag_name // empty")
+          fi
+          if [ -z "$FROM_TAG" ]; then
+            echo "::error::$FROM_REPO has no other release to start from; run it by hand with from-repo and from-tag."
+            exit 1
+          fi
+          echo "Customer PC: $FROM_REPO $FROM_TAG -> $EXPECT"
+          {
+            echo "expect=$EXPECT"
+            echo "from_repo=$FROM_REPO"
+            echo "from_tag=$FROM_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+  published-release:
+    needs: resolve
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECT: ${{ needs.resolve.outputs.expect }}
+    steps:
+      - name: The release is what clients find, and its files download
+        run: |
+          set -euo pipefail
+          # The repository this tag's clients ask, read from the tag itself.
+          src=$(gh api "repos/$GITHUB_REPOSITORY/contents/src/datasoftware.rs?ref=$EXPECT" --jq .content | base64 -d)
+          owner=$(grep -oP 'pub const UPDATE_OWNER: &str = "\K[^"]+' <<<"$src")
+          name=$(grep -oP 'pub const UPDATE_REPO: &str = "\K[^"]+' <<<"$src")
+          echo "Clients built from $EXPECT ask $owner/$name"
+          fail=0
+          for repo in $(printf '%s\n' "$owner/$name" "$GITHUB_REPOSITORY" | sort -u); do
+            rel=$(gh api "repos/$repo/releases/latest")
+            tag=$(jq -r .tag_name <<<"$rel")
+            if [ "$tag" != "$EXPECT" ]; then
+              echo "::error::$repo: /releases/latest is $tag, not $EXPECT - clients will not see it"
+              fail=1
+              continue
+            fi
+            for ext in exe msi; do
+              asset="rustdesk-$EXPECT-x86_64.$ext"
+              want=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .size' <<<"$rel")
+              url="https://github.com/$repo/releases/download/$EXPECT/$asset"
+              headers=$(curl -sSIL --max-time 120 "$url" | tr -d '\r') || true
+              code=$(grep -E '^HTTP/' <<<"$headers" | tail -1 | awk '{print $2}')
+              len=$(awk 'tolower($1) == "content-length:" { l = $2 } END { print l }' <<<"$headers")
+              if [ -z "$want" ] || [ "$code" != "200" ] || [ "$len" != "$want" ]; then
+                echo "::error::$url: HTTP ${code:-none}, ${len:-?} bytes, release lists ${want:-no such asset}"
+                fail=1
+              else
+                echo "ok  $url ($len bytes)"
+              fi
+            done
+          done
+          exit $fail
+
+  customer-pc:
+    needs: resolve
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      EXPECT: ${{ needs.resolve.outputs.expect }}
+      FROM_REPO: ${{ needs.resolve.outputs.from-repo }}
+      FROM_TAG: ${{ needs.resolve.outputs.from-tag }}
+    steps:
+      - name: Install the previous release from its MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP 'from.msi'
+          Invoke-WebRequest -UseBasicParsing "https://github.com/$env:FROM_REPO/releases/download/$env:FROM_TAG/rustdesk-$env:FROM_TAG-x86_64.msi" -OutFile $msi
+          $log = Join-Path $env:RUNNER_TEMP 'install.log'
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "msiexec returned $($p.ExitCode)" }
+          Get-Service DataSoftware-Remote | Format-List Name, Status, StartType
+
+      - name: Leave it alone until the auto-updater has run
+        shell: pwsh
+        run: |
+          function Installed {
+            (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+              Where-Object DisplayName -eq 'DataSoftware-Remote' | Select-Object -First 1).DisplayVersion
+          }
+          $want = $env:EXPECT -replace '-', '.'
+          Write-Host "Installed $(Installed) from $env:FROM_REPO $env:FROM_TAG, waiting for $want"
+          $deadline = (Get-Date).AddMinutes(25)
+          $last = ''
+          while ((Get-Date) -lt $deadline) {
+            $v = Installed
+            if ($v -ne $last) { Write-Host "$(Get-Date -Format HH:mm:ss) installed: $v"; $last = $v }
+            if ($v -eq $want) { break }
+            Start-Sleep -Seconds 15
+          }
+          if ($last -ne $want) {
+            Write-Host "::error::The client never updated itself from $env:FROM_TAG to $env:EXPECT (installed: $last)"
+            exit 1
+          }
+
+      - name: The updated client runs and reports the release
+        shell: pwsh
+        run: |
+          $exe = 'C:\Program Files\DataSoftware-Remote\DataSoftware-Remote.exe'
+          $reported = (& $exe --version | Out-String).Trim()
+          Write-Host "DataSoftware-Remote.exe --version: $reported"
+          if ($reported -ne $env:EXPECT) {
+            Write-Host "::error::The installed exe reports '$reported', not $env:EXPECT"
+            exit 1
+          }
+          # update_me() restarts the service last; give it a moment.
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Get-Service DataSoftware-Remote).Status -ne 'Running' -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          $status = (Get-Service DataSoftware-Remote).Status
+          Write-Host "Service: $status"
+          if ($status -ne 'Running') {
+            Write-Host "::error::The service is $status after the update"
+            exit 1
+          }
+
+      - name: Client logs
+        if: always()
+        shell: pwsh
+        run: |
+          $diag = Join-Path $env:RUNNER_TEMP 'diag'
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'install.log') $diag -ErrorAction SilentlyContinue
+          $roots = @(
+            'C:\Windows\System32\config\systemprofile\AppData\Roaming\DataSoftware-Remote',
+            'C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\DataSoftware-Remote',
+            'C:\ProgramData\DataSoftware-Remote'
+          ) + @(Get-ChildItem 'C:\Users\*\AppData\Roaming\DataSoftware-Remote' -Directory -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          foreach ($r in $roots) {
+            Get-ChildItem $r -Recurse -File -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item $_.FullName (Join-Path $diag ($_.FullName -replace '[:\\]', '_'))
+              Write-Host "===== $($_.FullName)"
+              Get-Content $_.FullName -Tail 60 | Select-String -Pattern 'update|version|download|error|fail' | ForEach-Object Line
+            }
+          }
+
+      - name: Upload the client logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: update-e2e-logs
+          path: ${{ runner.temp }}/diag
+          if-no-files-found: ignore

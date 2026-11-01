@@ -225,6 +225,28 @@ MUTATIONS = [
         "kDataSoftwareGoogleReviewUrl = 'http://example.com/' +",
         "the review link is empty (off) or an https URL",
     ),
+    (
+        "the next-release unit test is dropped",
+        "src/datasoftware.rs",
+        "fn this_build_can_update_to_its_next_release()",
+        "fn renamed_away()",
+        "a unit test proves this build accepts its next release",
+    ),
+    (
+        "upstream routes the download through a different check",
+        "src/updater.rs",
+        "get_download_file_from_url(&download_url)",
+        "get_other_download_file(&download_url)",
+        "check_update() still validates the download URL only through "
+        "get_download_file_from_url()",
+    ),
+    (
+        "the release workflow is renamed and the e2e test stops following it",
+        ".github/workflows/datasoftware-windows.yml",
+        "name: DataSoftware Remote - Windows",
+        "name: DataSoftware Remote - Windows build",
+        "the update e2e test exists and follows every release build",
+    ),
 ]
 
 

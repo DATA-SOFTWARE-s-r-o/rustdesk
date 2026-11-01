@@ -471,6 +471,42 @@ mod tests {
         assert!(crate::updater::get_download_file_from_url(official).is_none());
     }
 
+    // 1.5.0-1 passed every test and still could not take a single update. What
+    // matters is whether the build about to ship accepts the release after it,
+    // so this walks the steps of `do_check_software_update()` and
+    // `updater::check_update()` with this build's own VERSION.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn this_build_can_update_to_its_next_release() {
+        use hbb_common::get_version_number;
+        let current = crate::VERSION;
+        let (base, build) = current
+            .rsplit_once('-')
+            .expect("a DataSoftware version ends in -N");
+        let build: u32 = build.parse().expect("-N is a number");
+        let arch = crate::platform::windows::release_arch_suffix().expect("a release arch");
+        for next in [format!("{base}-{}", build + 1), "99.0.0-1".to_owned()] {
+            assert!(
+                get_version_number(&next) > get_version_number(current),
+                "{next} is not newer than {current}"
+            );
+            let tag_url = release_tag_url(&next);
+            assert_eq!(tag_url.rsplit('/').next(), Some(next.as_str()));
+            for ext in ["exe", "msi"] {
+                let asset = format!("rustdesk-{next}-{arch}.{ext}");
+                let url = format!("{}/{asset}", tag_url.replace("tag", "download"));
+                let file = crate::updater::get_download_file_from_url(&url);
+                assert_eq!(
+                    file.as_deref()
+                        .and_then(|p| p.file_name())
+                        .and_then(|n| n.to_str()),
+                    Some(asset.as_str()),
+                    "the updater refuses {url}"
+                );
+            }
+        }
+    }
+
     // A DataSoftware release must compare as newer than the upstream base
     // version, otherwise `do_check_software_update()` never offers it.
     #[test]

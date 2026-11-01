@@ -156,6 +156,20 @@ if updater:
         "an upstream merge brought the hard-coded owner back; clients would "
         "refuse every DataSoftware update",
     )
+    # this_build_can_update_to_its_next_release() calls this function; if
+    # upstream adds or swaps a check on the download URL, that test no longer
+    # covers what the client really does.
+    check(
+        "check_update() still validates the download URL only through "
+        "get_download_file_from_url()",
+        "get_download_file_from_url(&download_url)" in updater,
+        "re-read check_update() and update the test in src/datasoftware.rs",
+    )
+    check(
+        "a unit test proves this build accepts its next release",
+        ds is not None and "fn this_build_can_update_to_its_next_release" in ds,
+        "1.5.0-1 shipped without one and never updated again",
+    )
 else:
     check("src/updater.rs exists", False, "the Windows auto-updater is gone")
 
@@ -734,6 +748,31 @@ for wf, why in (
         "%s -- found %s; re-apply the DataSoftware trigger change"
         % (why, ", ".join(automatic) if automatic else ""),
     )
+
+# --------------------------------------------------------------------------
+# 13. The update end-to-end test stays wired to the release build
+#
+#     It starts by workflow_run on the release workflow's *name*, so renaming
+#     either side silently stops it from running.
+# --------------------------------------------------------------------------
+release_wf = read(".github/workflows/datasoftware-windows.yml") or ""
+e2e_wf = read(".github/workflows/datasoftware-update-e2e.yml")
+check(
+    "the update e2e test exists and follows every release build",
+    e2e_wf is not None
+    and 'workflows: ["DataSoftware Remote - Windows"]' in e2e_wf
+    and re.search(r"^name: DataSoftware Remote - Windows$", release_wf, re.M),
+    "without it a release that clients cannot install goes unnoticed, as "
+    "1.5.0-1 did",
+)
+check(
+    "the e2e test installs the previous release and waits for the updater",
+    e2e_wf is not None
+    and "customer-pc:" in e2e_wf
+    and "published-release:" in e2e_wf
+    and "msiexec.exe" in e2e_wf,
+    "see DATASOFTWARE_BUILD.md, 'Update end-to-end test'",
+)
 
 # --------------------------------------------------------------------------
 # Report
