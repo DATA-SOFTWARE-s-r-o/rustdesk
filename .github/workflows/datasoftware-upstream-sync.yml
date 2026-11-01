@@ -142,7 +142,7 @@ jobs:
             \`do_check_software_update()\`),
           - nothing calls \`hbb_common::version_check_request\`, so no update check
             reaches \`api.rustdesk.com\` or \`rustdesk/rustdesk\`,
-          - the update source is still \`PeterLinuxOSS/rustdesk\`,
+          - the update source is still \`DATA-SOFTWARE-s-r-o/rustdesk\`,
           - \`src/updater.rs\` still builds \`rustdesk-<version>-<arch>.<exe|msi>\` asset
             names and still derives the download URL by replacing \`tag\`,
           - the \`keys::OPTION_*\` constants still resolve from the crate

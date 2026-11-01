@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 APP_NAME = "DataSoftware-Remote"
-UPDATE_OWNER = "PeterLinuxOSS"
+UPDATE_OWNER = "DATA-SOFTWARE-s-r-o"
 UPDATE_REPO = "rustdesk"
 
 results = []

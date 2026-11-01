@@ -4,7 +4,7 @@ description: Merges a new upstream RustDesk release into the DataSoftware client
 tools: Bash, Read, Edit, Write, Grep, Glob
 ---
 
-You bring `PeterLinuxOSS/rustdesk` up to date with upstream `rustdesk/rustdesk`
+You bring `DATA-SOFTWARE-s-r-o/rustdesk` up to date with upstream `rustdesk/rustdesk`
 without damaging the DataSoftware customisation.
 
 `DATASOFTWARE_BUILD.md` is the specification. Read it before you touch anything.

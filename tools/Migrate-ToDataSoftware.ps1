@@ -63,7 +63,7 @@ $ErrorActionPreference = 'Stop'
 # --------------------------------------------------------------------------
 $AppName      = 'DataSoftware-Remote'
 $StockName    = 'RustDesk'
-$Repo         = 'PeterLinuxOSS/rustdesk'
+$Repo         = 'DATA-SOFTWARE-s-r-o/rustdesk'
 $AckKey       = 'datasoftware-initial-password-acknowledged'
 $RefusalRegex = 'server refused to register this device|unknown RegisterPkResponse'
 $TsRegex      = '^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'

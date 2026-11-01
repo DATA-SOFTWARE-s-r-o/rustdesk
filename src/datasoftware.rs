@@ -103,7 +103,12 @@ pub const REGISTER_PK_REFUSED_HINT: &str = concat!(
 // repository. There is deliberately NO fallback to `rustdesk/rustdesk`.
 
 /// GitHub owner of the repository that serves DataSoftware Remote updates.
-pub const UPDATE_OWNER: &str = "PeterLinuxOSS";
+///
+/// Until 1.5.0-2 this was `PeterLinuxOSS`, and clients built then still ask
+/// that repository. Its latest release is the 1.5.0-3 bridge, which points
+/// here, so `PeterLinuxOSS/rustdesk` and that release must stay. See
+/// DATASOFTWARE_BUILD.md, "Moving the update source".
+pub const UPDATE_OWNER: &str = "DATA-SOFTWARE-s-r-o";
 
 /// GitHub repository name that serves DataSoftware Remote updates.
 pub const UPDATE_REPO: &str = "rustdesk";
@@ -427,11 +432,11 @@ mod tests {
     fn update_urls_point_at_the_datasoftware_fork() {
         assert_eq!(
             latest_release_api_url(),
-            "https://api.github.com/repos/PeterLinuxOSS/rustdesk/releases/latest"
+            "https://api.github.com/repos/DATA-SOFTWARE-s-r-o/rustdesk/releases/latest"
         );
         assert_eq!(
             release_tag_url("1.4.9-1"),
-            "https://github.com/PeterLinuxOSS/rustdesk/releases/tag/1.4.9-1"
+            "https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/tag/1.4.9-1"
         );
         assert!(!latest_release_api_url().contains("rustdesk/rustdesk"));
         assert!(!release_tag_url("1.4.9-1").contains("rustdesk/rustdesk"));
@@ -444,7 +449,7 @@ mod tests {
         let tag_url = release_tag_url("1.4.9-1");
         assert_eq!(
             tag_url.replace("tag", "download"),
-            "https://github.com/PeterLinuxOSS/rustdesk/releases/download/1.4.9-1"
+            "https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/download/1.4.9-1"
         );
     }
 

@@ -10,7 +10,9 @@ This document is the maintenance contract for the fork. It contains no secrets.
 - Branch: `datasoftware-custom-client`
 - Base: upstream tag `1.4.9`
 - Upstream: <https://github.com/rustdesk/rustdesk>
-- Fork: <https://github.com/PeterLinuxOSS/rustdesk>
+- Fork: <https://github.com/DATA-SOFTWARE-s-r-o/rustdesk> — the update source
+  since 1.5.0-3. The earlier <https://github.com/PeterLinuxOSS/rustdesk> keeps
+  serving the bridge release to older clients; see section 7b.
 
 ---
 
@@ -340,9 +342,10 @@ not used for this build.
 
 **Only step 3.** `do_check_software_update()` now calls
 `datasoftware::fetch_latest_release_url()`, which does a plain
-`GET https://api.github.com/repos/PeterLinuxOSS/rustdesk/releases/latest`
+`GET https://api.github.com/repos/DATA-SOFTWARE-s-r-o/rustdesk/releases/latest`
 and returns
-`https://github.com/PeterLinuxOSS/rustdesk/releases/tag/<tag_name>`.
+`https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/tag/<tag_name>`.
+Clients up to 1.5.0-2 ask `PeterLinuxOSS/rustdesk` instead; see section 7b.
 
 Steps 1, 2, 4 and 5 are untouched upstream code, which is why the release asset
 names must keep the upstream `rustdesk-*` pattern.
@@ -627,7 +630,7 @@ confirmed. In an elevated PowerShell on the target:
 
 ```powershell
 $s = "$env:WINDIR\Temp\mig.ps1"
-iwr -UseBasicParsing https://raw.githubusercontent.com/PeterLinuxOSS/rustdesk/datasoftware-custom-client/tools/Migrate-ToDataSoftware.ps1 -OutFile $s
+iwr -UseBasicParsing https://raw.githubusercontent.com/DATA-SOFTWARE-s-r-o/rustdesk/datasoftware-custom-client/tools/Migrate-ToDataSoftware.ps1 -OutFile $s
 powershell -NoProfile -ExecutionPolicy Bypass -File $s
 ```
 
@@ -763,6 +766,39 @@ every 24 h, skipped while a session is active).
 
 ---
 
+## 7b. Moving the update source
+
+In November 2026 the update source moved from `PeterLinuxOSS/rustdesk` to
+`DATA-SOFTWARE-s-r-o/rustdesk`. Clients cannot be told to look elsewhere: the
+owner is compiled in (`UPDATE_OWNER` in `src/datasoftware.rs`), so the move
+works through one **bridge release**:
+
+1. 1.5.0-3 is built with `UPDATE_OWNER = "DATA-SOFTWARE-s-r-o"` and published
+   in **both** repositories (the same tag is pushed to each; each repository's
+   workflow builds and publishes it).
+2. Clients up to 1.5.0-2 still ask `PeterLinuxOSS/rustdesk`, find 1.5.0-3 there
+   and install it. From then on they ask the organisation.
+3. All later releases are published only in the organisation.
+
+This does not depend on GitHub's redirect for transferred repositories, which
+would disappear for good the moment a new `PeterLinuxOSS/rustdesk` existed —
+for example a fresh personal fork for an upstream pull request.
+
+Rules that keep it working:
+
+- **Never delete `PeterLinuxOSS/rustdesk` or its 1.5.0-3 release**, and do not
+  publish anything newer there. A machine that was off for months still finds
+  the bridge, updates to it, and then follows the organisation.
+- **1.5.0-1 is the exception.** Its updater only accepts downloads from
+  `rustdesk/rustdesk` (upstream #15529, see section 3), so no release can reach
+  it. Machines on 1.5.0-1 need one manual install of any later version, for
+  example during a remote session. They update by themselves after that.
+- A machine on 1.4.9-x takes two steps (to 1.5.0-3 from `PeterLinuxOSS`, then
+  on to whatever the organisation has), each on the next update check — within
+  about a day while it is online.
+
+---
+
 ## 8. How to merge a new upstream RustDesk release
 
 This is mostly automated. Three pieces do the work:
@@ -878,7 +914,7 @@ After installing the produced `.exe` or `.msi`:
     `%APPDATA%\DataSoftware-Remote\log\` — the update check runs 30 s after the
     service starts.
 11. Confirm in the log, or with a network capture, that the client contacts
-    `api.github.com/repos/PeterLinuxOSS/rustdesk` and never
+    `api.github.com/repos/DATA-SOFTWARE-s-r-o/rustdesk` and never
     `api.rustdesk.com/version/latest`.
 
 ---

@@ -108,9 +108,9 @@ MUTATIONS = [
     (
         "updates point back at the official repository",
         "src/datasoftware.rs",
-        'pub const UPDATE_OWNER: &str = "PeterLinuxOSS";',
+        'pub const UPDATE_OWNER: &str = "DATA-SOFTWARE-s-r-o";',
         'pub const UPDATE_OWNER: &str = "rustdesk";',
-        "UPDATE_OWNER is PeterLinuxOSS",
+        "UPDATE_OWNER is DATA-SOFTWARE-s-r-o",
     ),
     (
         "a space creeps back into the app name",
