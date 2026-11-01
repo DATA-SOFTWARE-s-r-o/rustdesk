@@ -622,7 +622,7 @@ if review:
         "launchUrl() opens whatever is configured here in the customer's "
         "browser",
     )
-for lang in ("en", "sk"):
+for lang in ("en", "sk", "cs"):
     src = read("src/lang/%s.rs" % lang) or ""
     missing = [
         k
@@ -633,6 +633,28 @@ for lang in ("en", "sk"):
         "src/lang/%s.rs has the review invitation texts" % lang,
         not missing,
         "missing: %s; the customer would see the raw keys" % ", ".join(missing),
+    )
+# Customers are Slovak and Czech. A key missing from their file falls back to
+# English, not to the other language, so both need the whole set.
+for lang in ("sk", "cs"):
+    src = read("src/lang/%s.rs" % lang) or ""
+    missing = [
+        k
+        for k in (
+            "datasoftware_initial_password_warning",
+            "datasoftware_support_credentials_tip",
+            "datasoftware_id_pending",
+            "Access details for support",
+            "Copy both",
+            "I have sent these details",
+        )
+        if '("%s"' % k not in src
+    ]
+    check(
+        "src/lang/%s.rs has the first-run password texts" % lang,
+        not missing,
+        "missing: %s; that part of the dialog would be in English"
+        % ", ".join(missing),
     )
 
 # --------------------------------------------------------------------------

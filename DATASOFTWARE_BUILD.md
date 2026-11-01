@@ -214,8 +214,13 @@ and `flutter/lib/datasoftware.dart` (`kDataSoftwareInitialPasswordAck`). A
 drift would silently disable the lock, so `check_customisation.py` compares
 them.
 
-Dialog strings are translated; Slovak lives in `src/lang/sk.rs`, English in
-`src/lang/en.rs`.
+Dialog strings are translated; Slovak lives in `src/lang/sk.rs`, Czech in
+`src/lang/cs.rs`, English in `src/lang/en.rs`. This applies to the review
+invitation (section 1c) too. With the language left at its default, the app
+follows the Windows regional format of the user (`sk-SK` → Slovak, `cs-CZ` →
+Czech), and a key missing from that language falls back to English, not to a
+related language. That is why `check_customisation.py` checks both Slovak and
+Czech for the whole set.
 
 ---
 

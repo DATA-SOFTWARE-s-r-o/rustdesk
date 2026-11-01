@@ -780,6 +780,18 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("RustDesk could not load a GStreamer component needed for screen capture ({})", "RustDesk nemohl načíst komponentu GStreameru potřebnou k zachycení obrazovky ({})"),
         ("Relay fallback delay in seconds", "Prodleva před přepnutím na přenos v sekundách"),
         ("relay-fallback-delay-tip", "Jak dlouho již navázané spojení přes přenos čeká na přímé spojení WebRTC, než bude použito místo něj. Zvyšte, aby pomalé přímé spojení mělo více času uspět; snižte, aby se v sítích, kde přímé spojení není možné, dříve přešlo na přenos. Ponechte prázdné pro výchozí hodnotu 2.5 sekundy."),
+        ("datasoftware_initial_password_warning", "Pokud okno zavřete bez potvrzení, při příštím spuštění se vygeneruje nové heslo."),
+        ("Access details for support", "Přístupové údaje pro podporu"),
+        ("datasoftware_support_credentials_tip", "Pošlete toto ID a heslo technické podpoře DataSoftware. Heslo je trvalé a znovu se již nezobrazí."),
+        ("datasoftware_id_pending", "ID se ještě přiděluje, najdete ho v hlavním okně."),
+        ("datasoftware_review_title", "Děkujeme, že jste si vybrali DataSoftware"),
+        ("datasoftware_review_tip", "Ohodnotíte naši podporu na Googlu? Vaše hodnocení nám pomáhá se zlepšovat a zabere jen chvilku."),
+        ("datasoftware_review_open", "Ohodnotit na Googlu"),
+        ("datasoftware_review_later", "Teď ne"),
+        ("datasoftware_review_never", "Už se neptat"),
+        ("Copy both", "Kopírovat obojí"),
+        ("I have sent these details", "Údaje byly odeslány"),
+        ("Copy", "Kopírovat"),
         ("To start a voice call, enable \"Audio capture\" on the \"Screen share\" page.", "")
     ].iter().cloned().collect();
 }
