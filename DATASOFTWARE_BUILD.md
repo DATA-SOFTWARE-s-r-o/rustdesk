@@ -240,7 +240,9 @@ It appears only when all of these hold:
 - this Windows user has neither opened the review nor chosen "Don't ask again",
   and was not invited in the last 30 days.
 
-It closes on its own after 10 minutes, so it does not linger on unattended
+When it appears, the window is restored if the technician minimised it,
+moved from the top-right corner to the centre of the screen and brought in
+front of other windows. It closes on its own after 10 minutes, so it does not linger on unattended
 machines. The state is two local options of the Windows user:
 `datasoftware-review-done` (`Y`) and `datasoftware-review-last-shown` (epoch
 milliseconds). To see it again while testing, delete both lines from

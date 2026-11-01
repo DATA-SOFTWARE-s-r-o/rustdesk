@@ -32,6 +32,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -131,6 +132,28 @@ class DataSoftwareReview {
         value: DateTime.now().millisecondsSinceEpoch.toString());
     _timeout?.cancel();
     _timeout = Timer(_shownFor, () => _hide(closeWindow: true));
+    _bringForward();
+  }
+
+  /// During the session the window sits in the top-right corner, and the
+  /// technician may have minimised it. Restore it, centre it and put it in
+  /// front of everything else.
+  Future<void> _bringForward() async {
+    try {
+      await windowManager.setOpacity(1);
+      // Windows does not let a background process take the foreground with a
+      // plain focus(); minimising and restoring does, as showCmWindow() in
+      // main.dart relies on too.
+      await windowManager.minimize();
+      await windowManager.restore();
+      await windowManager.setSizeAlignment(
+          kConnectionManagerWindowSizeClosedChat, Alignment.center);
+      await windowManager.setAlwaysOnTop(true);
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (e) {
+      debugPrint('DataSoftware: could not bring the invitation forward: $e');
+    }
   }
 
   void _hide({required bool closeWindow}) {
@@ -140,6 +163,11 @@ class DataSoftwareReview {
     shown.value = false;
     if (closeWindow && (_model?.clients.isEmpty ?? true)) {
       windowManager.close();
+    } else if (!closeWindow) {
+      // A new session took the window back. showCmWindow() only repositions a
+      // window it finds hidden, so put it back in its corner here.
+      windowManager.setSizeAlignment(
+          kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
     }
   }
 
