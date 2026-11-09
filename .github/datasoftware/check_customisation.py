@@ -252,11 +252,17 @@ if updater and artifact and common and metadata_rs:
     # Clients up to 1.5.0-3 never read the metadata: they append
     # rustdesk-<tag>-x86_64.<exe|msi> to the tag URL with "tag" replaced by
     # "download". Every release has to keep serving them.
+    publish_step = re.search(
+        r"- name: Publish Release\n(.*?)\n\s*- name:",
+        (windows_wf or "").replace("\r\n", "\n"),
+        re.S,
+    )
+    publish_step = publish_step.group(1) if publish_step else ""
     check(
         "releases still carry the installers clients up to 1.5.0-3 download",
-        windows_wf is not None
-        and "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe" in windows_wf
-        and "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.msi" in windows_wf
+        "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe" in publish_step
+        and "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.msi" in publish_step
+        and "prerelease: false" in publish_step
         and ds is not None
         and 'tag.contains("tag")' in ds,
         "the ~30 machines still on 1.5.0-x would never update again",

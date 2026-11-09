@@ -100,9 +100,9 @@ MUTATIONS = [
     (
         "the api.rustdesk.com lookup comes back",
         "src/common.rs",
-        "let response_url = crate::datasoftware::fetch_latest_release_url().await?;",
+        "let result = crate::datasoftware::fetch_latest_release_url()",
         "let (request, url) = hbb_common::version_check_request("
-        "hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string()); let response_url = url;",
+        "hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string()); let result = fetch(url)",
         "no caller of hbb_common::version_check_request",
     ),
     (
@@ -129,8 +129,8 @@ MUTATIONS = [
     (
         "a release stops carrying the installers old clients download",
         ".github/workflows/datasoftware-windows.yml",
-        "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe",
-        "./SignOutput/remote-${{ env.VERSION }}-${{ env.ARCH }}.exe",
+        "            ./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe\n",
+        "            ./SignOutput/remote-${{ env.VERSION }}-${{ env.ARCH }}.exe\n",
         "releases still carry the installers clients up to 1.5.0-3 download",
     ),
     (
