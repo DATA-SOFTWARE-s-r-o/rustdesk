@@ -323,7 +323,7 @@ not used for this build.
 
 ## 3. How the updater was redirected
 
-### Upstream flow
+### Upstream flow (1.5.3)
 
 1. `src/rendezvous_mediator.rs` starts `updater::start_auto_update()` on
    Windows when the client is installed and running as the server/service.
@@ -331,37 +331,57 @@ not used for this build.
    `common::do_check_software_update()`.
 3. `do_check_software_update()` POSTs to `https://api.rustdesk.com/version/latest`
    (via `hbb_common::version_check_request`), which answers with a
-   `https://github.com/rustdesk/rustdesk/releases/tag/<version>` URL, and stores
-   it in `common::SOFTWARE_UPDATE_URL`.
-4. `updater.rs` turns that into a download URL with
-   `update_url.replace("tag", "download")` and appends
-   `/rustdesk-<version>-<arch>.<exe|msi>`.
-5. It downloads the asset and runs it with `--update`.
+   `https://github.com/rustdesk/rustdesk/releases/tag/<version>` URL. It is
+   parsed by `release_id_from_update_url()` and
+   `display_version_from_release_id()` and stored in
+   `common::SOFTWARE_UPDATE_URL` if newer.
+4. Since 1.5.1 (#15914), `src/updater/artifact.rs` downloads
+   `rustdesk-update.json` and `rustdesk-update.json.sig` from that release,
+   verifies the Ed25519 signature against the key compiled into
+   `src/update_metadata.rs`, and takes the installer URL, size and SHA-256 from
+   the metadata. The URL must lie in that same release.
+5. It downloads the installer, checks size and hash, and runs it with
+   `--update`.
 
 ### What we changed
 
-**Only step 3.** `do_check_software_update()` now calls
+**Step 3:** `do_check_software_update()` now calls
 `datasoftware::fetch_latest_release_url()`, which does a plain
 `GET https://api.github.com/repos/DATA-SOFTWARE-s-r-o/rustdesk/releases/latest`
 and returns
 `https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/tag/<tag_name>`.
 Clients up to 1.5.0-2 ask `PeterLinuxOSS/rustdesk` instead; see section 7b.
+`release_id_from_update_url()` accepts our repository instead of
+`rustdesk/rustdesk`, and `display_version_from_release_id()` our
+`<version>-<build>` tags; upstream takes only `X.Y.Z`.
 
-Steps 1, 2, 4 and 5 are untouched upstream code, which is why the release asset
-names must keep the upstream `rustdesk-*` pattern.
+**Step 4:** the metadata and the installers come from our release
+(`datasoftware::release_download_prefix()`), and the client trusts our own
+signing key instead of RustDesk's (section 3b).
+
+**Step 5:** `get_update_download_file_from_url()` in `src/updater/artifact.rs`
+accepts only our repository. Upstream #15529 made it accept only
+`github.com/rustdesk/rustdesk/releases/download/...`. Merged unchanged, it made
+**1.5.0-1 reject its own update URL**: such a client downloads nothing and has
+to be updated by hand once.
+
+Steps 1 and 2 and the download itself are untouched upstream code.
 
 There is **no fallback** to `rustdesk/rustdesk` or to `api.rustdesk.com`: if the
 GitHub lookup fails, the check simply fails and is retried later.
 
-**Step 4 has one change too, since 1.5.0.** Upstream #15529 made
-`get_update_download_file_from_url()` in `src/updater.rs` accept only
-`github.com/rustdesk/rustdesk/releases/download/...`. Merged unchanged, it made
-**1.5.0-1 reject its own update URL**: such a client downloads nothing and has
-to be updated by hand once. The check now compares against `UPDATE_OWNER` and
-`UPDATE_REPO`, so it accepts our repository and still refuses the official one.
-`datasoftware::tests::the_updater_accepts_our_release_assets_and_only_ours`
-and two checks in `check_customisation.py` fail if a merge brings the old
-check back.
+Each of these patches is pinned by a check in `check_customisation.py` with a
+mutation in `test_tooling.py`, and by the unit tests in `src/datasoftware.rs`
+(section 7).
+
+### Clients up to 1.5.0-3
+
+They predate step 4. They build the download URL themselves, with
+`update_url.replace("tag", "download")` plus
+`/rustdesk-<tag>-<arch>.<exe|msi>`, and never read the metadata. Every release
+therefore still publishes the installers under exactly those names, and the
+`--update` of the new version they run is the new code. The update e2e test
+(section 7) walks this path whenever the previous release is 1.5.0-x.
 
 Side effects, both intentional:
 
@@ -388,21 +408,61 @@ Re-run the check after any upstream merge:
 grep -rn "rustdesk/rustdesk\|api.rustdesk.com" src/ | grep -v "^src/[a-z_/]*\.rs:[0-9]*: *//"
 ```
 
+The tests in `src/common.rs` and `src/updater/artifact.rs` still name
+`rustdesk/rustdesk`, as URLs that must be refused.
+
+---
+
+## 3b. Update signing key
+
+Since 1.5.3-1 a client installs an update only if the release's
+`rustdesk-update.json` is signed with **our** Ed25519 key. RustDesk's key can
+never sign our releases, so the fork carries its own:
+
+| | |
+| --- | --- |
+| Key id | `datasoftware-2026-ed25519` (`src/update_metadata.rs`, `res/update/generate_update_metadata.py`) |
+| Public key | `rLXWSxGq4aISi4f/DjlcUIaqDcSWMkGExYlXYP/WqXo=`, compiled into the client and written in `datasoftware-windows.yml` |
+| Private key | the 32-byte seed, base64, **only** as the Actions secret `DATASOFTWARE_UPDATE_ED25519_SEED` of `DATA-SOFTWARE-s-r-o/rustdesk`, plus Peter's offline backup |
+
+The private key is never committed and never printed by a workflow. The
+release workflow's `check-key` step fails the build if the secret is missing or
+is not the private half of the public key above.
+
+**If the secret is lost or overwritten**, restore it from the backup:
+
+```bash
+gh secret set DATASOFTWARE_UPDATE_ED25519_SEED -R DATA-SOFTWARE-s-r-o/rustdesk
+```
+
+(paste the base64 seed when asked). **If the seed itself is lost**, no client
+from 1.5.3-1 on can ever take another update. A new key needs a new client
+build that trusts it, and that build has to be installed on every machine by
+hand.
+
+**Replacing the key on purpose** (for example after a leak): add the new key as
+a second `TrustedUpdateKey` entry, ship a release still signed with the old
+key, wait until the machines have it, and only then switch the signer and the
+secret to the new key and remove the old entry. `check_customisation.py` pins
+exactly one key, so it has to be updated for the transition as well.
+
 ---
 
 ## 4. Release assets
 
-`src/updater.rs` builds the download file name itself:
+Every release carries four files:
 
 ```
-rustdesk-<tag>-<arch>.exe      # arch is x86_64 or aarch64
-rustdesk-<tag>-<arch>.msi
+rustdesk-<tag>-x86_64.exe      # what the auto-updater installs
+rustdesk-<tag>-x86_64.msi      # GPO / manual deployment
+rustdesk-update.json           # signed metadata, read by clients from 1.5.3-1 on
+rustdesk-update.json.sig
 ```
 
-So the asset names **must** keep the `rustdesk-` prefix even though the
-installed application is called DataSoftware-Remote. The build workflow
-produces exactly these names; nothing was renamed, and the updater and the
-workflow agree by construction.
+Clients up to 1.5.0-3 build the installer name themselves (section 3), so the
+asset names **must** keep the `rustdesk-` prefix even though the installed
+application is called DataSoftware-Remote. The metadata lists the same two
+files, under `windows` / `x86_64` / `exe|msi`.
 
 Two things follow from upstream's code:
 
@@ -696,9 +756,12 @@ reads a trailing `-N` as a numeric build suffix, so `1.4.9-1` compares as newer
 than the `1.4.9` base. A non-numeric suffix such as `1.4.9-ds1` parses as plain
 `1.4.9` and would never be offered as an update; `set_version.py` rejects it.
 
-The tag must also not contain the substring `tag`, because upstream builds the
-download URL with `update_url.replace("tag", "download")`.
+The tag must also not contain the substring `tag`, because clients up to
+1.5.0-3 build the download URL with `update_url.replace("tag", "download")`.
 `fetch_latest_release_url()` checks this at runtime.
+
+Since 1.5.3-1 the tag is also the metadata's `release_id` and `version`, and
+`display_version_from_release_id()` accepts exactly `X.Y.Z` or `X.Y.Z-N`.
 
 ---
 
@@ -725,9 +788,13 @@ Artifacts:
 | --- | --- |
 | `rustdesk-<version>-x86_64.exe` | portable / self-extracting installer |
 | `rustdesk-<version>-x86_64.msi` | Windows installer |
+| `rustdesk-update.json`, `.sig` | signed update metadata (section 3b) |
 | `datasoftware-remote-unsigned-windows-x86_64` | the unpacked build directory |
 
-Code signing is not configured. Upstream's signing steps depend on
+Every build, a test build included, signs the update metadata, so it needs the
+`DATASOFTWARE_UPDATE_ED25519_SEED` secret (section 3b).
+
+Code signing of the executables is not configured. Upstream's signing steps depend on
 `secrets.SIGN_BASE_URL` / `secrets.SIGN_SECRET_KEY` and were left out.
 Unsigned binaries will show a SmartScreen warning.
 
@@ -757,7 +824,9 @@ python3 build.py --portable --flutter --skip-portable-pack --hwcodec --vram
    git tag 1.4.9-2
    git push origin datasoftware-custom-client 1.4.9-2
    ```
-5. The workflow builds and publishes the release with both assets.
+5. The workflow builds, signs the update metadata, proves that the built
+   client accepts it, and publishes the release with all four assets
+   (section 4).
 6. Wait for **DataSoftware Remote - update e2e** to go green (it starts on its
    own, see below). Do not announce the release before that.
 
@@ -769,17 +838,27 @@ every 24 h, skipped while a session is active).
 1.5.0-1 passed every check and test, was published, and then refused every
 update after it (section 3). Two guards exist because of that:
 
-- **Before publishing**, `this_build_can_update_to_its_next_release()` in
-  `src/datasoftware.rs` takes this build's own `VERSION`, makes up the next
-  release (`-N+1` and `99.0.0-1`), and requires that it compares newer and that
-  the updater's download check accepts both its asset URLs. The checker fails
-  the build if the test is removed or if `check_update()` stops validating the
-  URL through `get_download_file_from_url()`, which is what the test calls.
+- **Before publishing**, two tests run in the build:
+  - `this_build_can_update_to_its_next_release()` in `src/datasoftware.rs`
+    takes this build's own `VERSION`, makes up the next release (`-N+1` and
+    `99.0.0-1`), and walks it through the client's own steps: the tag URL
+    parses, the version compares newer, and the installer URLs the signed
+    metadata will name pass the download check, for both `exe` and `msi`.
+  - `this_build_accepts_the_signed_release_it_ships_with()` runs after the
+    signing step on the real `rustdesk-update.json(.sig)`. The client code of
+    this very build must verify the signature, select both installers, and
+    agree with their size and SHA-256. A wrong key, key id, version shape, URL
+    or selector stops the build before anything is published.
+
+  The checker fails the build if either test is removed, or if upstream
+  reshapes the steps they repeat.
 - **After publishing**, `.github/workflows/datasoftware-update-e2e.yml` runs
   when the release workflow finishes a tag build:
   - `published-release` — the tag is `/releases/latest` both in this
     repository and in the one the tag's clients ask (`UPDATE_OWNER` /
-    `UPDATE_REPO`), and both files download from the URLs the updater builds.
+    `UPDATE_REPO`), both installers download from the URLs the updater
+    builds, and, for a release with the signed updater, `rustdesk-update.json`
+    names that release and its installers.
   - `customer-pc` — a clean Windows runner installs the previous release from
     its MSI and nobody touches it. Within 25 minutes the auto-updater alone
     must have moved it to the new release, the installed exe must report it,
@@ -880,10 +959,15 @@ after any merge, read the upstream diff for `src/common.rs`, `src/updater.rs`,
 2. **`src/common.rs::load_custom_client()`** — confirm
    `apply_builtin_config()` is still called, and that it is still the single
    entry point used by every process.
-3. **`src/updater.rs`** — confirm the asset name pattern is still
-   `rustdesk-<version>-<arch>.<exe|msi>` and that
-   `update_url.replace("tag", "download")` is still how the download URL is
-   built. If the pattern changed, change the workflow to match.
+3. **`src/updater.rs`, `src/updater/artifact.rs`, `src/update_metadata.rs`,
+   `res/update/`** — the signed update chain (sections 3 and 3b). Confirm that
+   the metadata is still read from the release the tag URL names, with the
+   same file names, signature context and JSON fields, and that
+   `datasoftware-windows.yml` signs what the client now expects. Any change in
+   `generate_update_metadata.py` or its requirements has to reach the signing
+   step and `.github/datasoftware/update_metadata_requirements-windows.txt`.
+   The two tests in section 7 fail the build if the client would refuse its
+   own release, but read the diff anyway.
 4. **`keys::OPTION_*` constants** — `check_customisation.py` verifies these
    resolve from the crate `src/datasoftware.rs` imports them from, so a move is
    caught before the build. It has already happened: in 1.4.9 they live in
