@@ -1,0 +1,10 @@
+# The Windows x86_64 wheels of res/update/update_metadata_requirements.txt, for
+# the signing step of .github/workflows/datasoftware-windows.yml (CPython 3.12).
+# Keep the versions in step with that file when merging upstream.
+cryptography==50.0.0 \
+    --hash=sha256:bd1c592e4d5974f0d08d4888e432157adba757c66da0246918e43677fafa2d30 \
+    --hash=sha256:d24fead1d4d076e1bfb006dcec392074a3cd8d7b4fc8a595aa64073b2b7a96ba
+cffi==2.1.0 \
+    --hash=sha256:c97f080ea627e2863524c5af3836e2270b5f5dfff1f104392b959f8df0c5d384
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992

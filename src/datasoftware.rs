@@ -126,6 +126,30 @@ pub fn release_tag_url(tag: &str) -> String {
     format!("https://github.com/{UPDATE_OWNER}/{UPDATE_REPO}/releases/tag/{tag}")
 }
 
+/// Where the assets of release `tag` live, including the signed
+/// `rustdesk-update.json` the updater reads first (src/updater/artifact.rs).
+#[inline]
+pub fn release_download_prefix(tag: &str) -> String {
+    format!("https://github.com/{UPDATE_OWNER}/{UPDATE_REPO}/releases/download/{tag}/")
+}
+
+/// Our versions are `<upstream version>-<build>`, e.g. `1.5.3-1`. Returns the
+/// upstream part, or None if the build is not a plain number, which
+/// `get_version_number()` would silently ignore.
+pub fn upstream_base_version(version: &str) -> Option<&str> {
+    match version.split_once('-') {
+        None => Some(version),
+        Some((base, build))
+            if !build.is_empty()
+                && build.bytes().all(|b| b.is_ascii_digit())
+                && build.parse::<u32>().is_ok() =>
+        {
+            Some(base)
+        }
+        Some(_) => None,
+    }
+}
+
 /// Apply the built-in DataSoftware configuration.
 ///
 /// This is the fork's replacement for upstream's signed `custom.txt` bundle
@@ -442,14 +466,19 @@ mod tests {
         assert!(!release_tag_url("1.4.9-1").contains("rustdesk/rustdesk"));
     }
 
-    // The updater builds the download URL with a plain `replace("tag", ...)`,
-    // so this must keep holding for our repository path.
+    // Clients up to 1.5.0-3 build the download URL with a plain
+    // `replace("tag", ...)` on this URL, and every release still has to reach
+    // them, so this must keep holding for our repository path.
     #[test]
     fn tag_url_survives_the_updater_rewrite() {
         let tag_url = release_tag_url("1.4.9-1");
         assert_eq!(
             tag_url.replace("tag", "download"),
             "https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/download/1.4.9-1"
+        );
+        assert_eq!(
+            release_download_prefix("1.4.9-1"),
+            "https://github.com/DATA-SOFTWARE-s-r-o/rustdesk/releases/download/1.4.9-1/"
         );
     }
 
@@ -459,22 +488,24 @@ mod tests {
     #[test]
     fn the_updater_accepts_our_release_assets_and_only_ours() {
         let ours = format!(
-            "{}/rustdesk-1.5.0-2-x86_64.msi",
-            release_tag_url("1.5.0-2").replace("tag", "download")
+            "{}rustdesk-1.5.0-2-x86_64.msi",
+            release_download_prefix("1.5.0-2")
         );
         assert!(
-            crate::updater::get_download_file_from_url(&ours).is_some(),
+            crate::updater::get_update_download_file_from_url(&ours).is_some(),
             "{ours}"
         );
         let official =
             "https://github.com/rustdesk/rustdesk/releases/download/1.5.0/rustdesk-1.5.0-x86_64.msi";
-        assert!(crate::updater::get_download_file_from_url(official).is_none());
+        assert!(crate::updater::get_update_download_file_from_url(official).is_none());
     }
 
     // 1.5.0-1 passed every test and still could not take a single update. What
     // matters is whether the build about to ship accepts the release after it,
     // so this walks the steps of `do_check_software_update()` and
-    // `updater::check_update()` with this build's own VERSION.
+    // `updater::check_update()` (src/updater/artifact.rs) with this build's
+    // own VERSION. The signature itself is proven on the real signed files by
+    // `this_build_accepts_the_signed_release_it_ships_with` below.
     #[cfg(target_os = "windows")]
     #[test]
     fn this_build_can_update_to_its_next_release() {
@@ -484,18 +515,25 @@ mod tests {
             .rsplit_once('-')
             .expect("a DataSoftware version ends in -N");
         let build: u32 = build.parse().expect("-N is a number");
-        let arch = crate::platform::windows::release_arch_suffix().expect("a release arch");
         for next in [format!("{base}-{}", build + 1), "99.0.0-1".to_owned()] {
+            let tag_url = release_tag_url(&next);
+            let release_id = crate::common::release_id_from_update_url(&tag_url)
+                .unwrap_or_else(|e| panic!("the update check refuses {tag_url}: {e}"));
+            let version = crate::common::display_version_from_release_id(&release_id)
+                .unwrap_or_else(|e| panic!("the update check refuses {release_id}: {e}"));
+            assert_eq!(version, next);
             assert!(
-                get_version_number(&next) > get_version_number(current),
+                get_version_number(&version) > get_version_number(current),
                 "{next} is not newer than {current}"
             );
-            let tag_url = release_tag_url(&next);
-            assert_eq!(tag_url.rsplit('/').next(), Some(next.as_str()));
-            for ext in ["exe", "msi"] {
-                let asset = format!("rustdesk-{next}-{arch}.{ext}");
-                let url = format!("{}/{asset}", tag_url.replace("tag", "download"));
-                let file = crate::updater::get_download_file_from_url(&url);
+            let prefix = release_download_prefix(&release_id);
+            for update_msi in [false, true] {
+                let query = crate::updater::current_update_artifact_query(update_msi);
+                // The selector the release workflow signs the installers under.
+                assert_eq!((query.platform, query.arch), ("windows", "x86_64"));
+                let asset = format!("rustdesk-{next}-x86_64.{}", query.format);
+                let url = format!("{prefix}{asset}");
+                let file = crate::updater::get_update_download_file_from_url(&url);
                 assert_eq!(
                     file.as_deref()
                         .and_then(|p| p.file_name())
@@ -504,6 +542,58 @@ mod tests {
                     "the updater refuses {url}"
                 );
             }
+        }
+    }
+
+    // Since 1.5.3-1 a client installs only what the signed rustdesk-update.json
+    // of a release lists. The release workflow signs that file with the real
+    // key and then runs this, so a build whose own code would refuse the
+    // release it ships with - wrong key, key id, version shape, URL or
+    // selector - never gets published. It needs those files, hence #[ignore].
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "needs the signed release files; run by datasoftware-windows.yml"]
+    fn this_build_accepts_the_signed_release_it_ships_with() {
+        use crate::update_metadata::{verify_update_metadata, UpdateMetadataRequirements};
+        let dir = std::path::PathBuf::from(
+            std::env::var("DATASOFTWARE_SIGNED_RELEASE_DIR")
+                .expect("DATASOFTWARE_SIGNED_RELEASE_DIR names the folder with the release"),
+        );
+        let read = |name: &str| {
+            std::fs::read(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        let metadata = read("rustdesk-update.json");
+        let signature = read("rustdesk-update.json.sig");
+        // The same steps as verified_update_artifact_from_release_page_url(),
+        // with the two files read from disk instead of from the release.
+        let release_id =
+            crate::common::release_id_from_update_url(&release_tag_url(crate::VERSION))
+                .expect("release id");
+        let display_version =
+            crate::common::display_version_from_release_id(&release_id).expect("version");
+        let prefix = release_download_prefix(&release_id);
+        for update_msi in [false, true] {
+            let query = crate::updater::current_update_artifact_query(update_msi);
+            let artifact = verify_update_metadata(
+                &metadata,
+                &signature,
+                UpdateMetadataRequirements {
+                    expected_version: &display_version,
+                    expected_release_id: &release_id,
+                    expected_artifact_url_prefix: &prefix,
+                    artifact: query,
+                },
+            )
+            .unwrap_or_else(|e| panic!("this build refuses its own {} update: {e}", query.format));
+            assert_eq!(artifact.version, crate::VERSION);
+            let file = crate::updater::get_update_download_file_from_url(&artifact.url)
+                .unwrap_or_else(|| panic!("the updater refuses {}", artifact.url));
+            let name = file.file_name().and_then(|n| n.to_str()).expect("file name");
+            let installer = read(name);
+            assert_eq!(installer.len() as u64, artifact.size, "{name} size");
+            let sha256 = crate::update_hash::sha256_reader_hex(&mut installer.as_slice())
+                .expect("sha256");
+            assert_eq!(sha256, artifact.sha256, "{name} sha256");
         }
     }
 

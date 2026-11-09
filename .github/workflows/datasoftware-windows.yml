@@ -9,8 +9,15 @@
 # not ship removed.
 #
 # Artifact names deliberately keep the upstream `rustdesk-<version>-<arch>`
-# scheme, because `src/updater.rs` builds its download URL from exactly that
-# pattern. Only the application branding changes, not the file names.
+# scheme, because clients up to 1.5.0-3 build their download URL from exactly
+# that pattern. Only the application branding changes, not the file names.
+#
+# Signed updates: from 1.5.3-1 on, a client installs only what the release's
+# rustdesk-update.json lists, and only if rustdesk-update.json.sig verifies
+# against the key compiled into src/update_metadata.rs. Every build - test
+# builds too - signs that file with the DATASOFTWARE_UPDATE_ED25519_SEED secret
+# and proves that its own client code accepts it, so a key or format mismatch
+# fails here instead of stranding the installed clients.
 #
 # Publishing: the release must be a FULL release, not a pre-release, because
 # the updater resolves the latest version through GitHub's `/releases/latest`
@@ -242,12 +249,20 @@ jobs:
       # >>> DataSoftware <<<
       # Same features and profile as build.py above, so this reuses the build
       # artifacts instead of compiling the dependency tree a second time.
+      # Ours, plus upstream's tests of the update path we patch (release URL
+      # and version parsing, download URL check, download and file
+      # verification).
       - name: Run the DataSoftware unit tests
         shell: bash
         run: |
           set -eu
-          cargo test --locked --features flutter,hwcodec,vram --lib --release \
-            datasoftware::tests 2>&1 | tee test-output.txt
+          cargo test --locked --features flutter,hwcodec,vram --lib --release -- \
+            datasoftware::tests \
+            common::tests::parses_stable_rustdesk_release_url \
+            common::tests::rejects_untrusted_release_urls_and_unstable_versions \
+            updater:: \
+            update_hash:: \
+            verified_update:: 2>&1 | tee test-output.txt
           # A filter that matches nothing still exits 0, so make sure the tests
           # actually ran.
           grep -qE "test result: ok\. [1-9][0-9]* passed" test-output.txt
@@ -357,6 +372,63 @@ jobs:
           mv $msi.FullName ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.msi
           sha256sum ../../SignOutput/rustdesk-*.msi
 
+      # >>> DataSoftware <<<
+      # After the installers, because the metadata carries their size and hash.
+      # The pinned requirements are the Windows wheels of upstream's
+      # res/update/update_metadata_requirements.txt.
+      - name: Install the update metadata signer
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      # The public key below must equal the one in src/update_metadata.rs, and
+      # the secret must be its private half; check-key enforces both.
+      - name: Sign the update metadata
+        shell: bash
+        env:
+          RUSTDESK_UPDATE_ED25519_SEED: ${{ secrets.DATASOFTWARE_UPDATE_ED25519_SEED }}
+          RUSTDESK_UPDATE_ED25519_PUBLIC_KEY: rLXWSxGq4aISi4f/DjlcUIaqDcSWMkGExYlXYP/WqXo=
+        run: |
+          set -eu
+          python -m pip install --only-binary=:all: --require-hashes \
+            -r .github/datasoftware/update_metadata_requirements-windows.txt
+          python res/update/generate_update_metadata.py check-key
+          # The repository the clients are pointed at, which the metadata must name.
+          owner=$(sed -n 's/^pub const UPDATE_OWNER: &str = "\(.*\)";.*/\1/p' src/datasoftware.rs)
+          repo=$(sed -n 's/^pub const UPDATE_REPO: &str = "\(.*\)";.*/\1/p' src/datasoftware.rs)
+          test -n "$owner" && test -n "$repo"
+          base="https://github.com/${owner}/${repo}/releases/download"
+          python res/update/generate_update_metadata.py sign \
+            --artifact windows x86_64 exe "./SignOutput/rustdesk-${VERSION}-x86_64.exe" \
+            --artifact windows x86_64 msi "./SignOutput/rustdesk-${VERSION}-x86_64.msi" \
+            --version "$VERSION" --release-id "$VERSION" --package-id rustdesk \
+            --release-base-url "$base" \
+            --published-at "$(git log -1 --format=%cI)" \
+            --metadata-out ./SignOutput/rustdesk-update.json \
+            --signature-out ./SignOutput/rustdesk-update.json.sig
+          python res/update/generate_update_metadata.py verify \
+            --metadata ./SignOutput/rustdesk-update.json \
+            --signature ./SignOutput/rustdesk-update.json.sig \
+            --artifact "./SignOutput/rustdesk-${VERSION}-x86_64.exe" \
+            --artifact "./SignOutput/rustdesk-${VERSION}-x86_64.msi" \
+            --version "$VERSION" --release-id "$VERSION" --package-id rustdesk \
+            --release-base-url "$base"
+          cat ./SignOutput/rustdesk-update.json
+
+      # The signer agreeing with itself is not enough: this runs the client's
+      # own verification code, as built here, on the files just signed.
+      - name: Prove this build accepts the release it ships with
+        shell: bash
+        env:
+          DATASOFTWARE_SIGNED_RELEASE_DIR: ${{ github.workspace }}/SignOutput
+        run: |
+          set -eu
+          cargo test --locked --features flutter,hwcodec,vram --lib --release \
+            datasoftware::tests::this_build_accepts_the_signed_release_it_ships_with \
+            -- --ignored --exact 2>&1 | tee signed-test-output.txt
+          grep -qE "test result: ok\. 1 passed" signed-test-output.txt
+      # >>> end DataSoftware <<<
+
       - name: Upload the release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -371,9 +443,31 @@ jobs:
         if: github.event_name == 'push' || inputs.publish-release
         with:
           prerelease: false
+          fail_on_unmatched_files: true
           tag_name: ${{ env.VERSION }}
           name: DataSoftware Remote ${{ env.VERSION }}
           files: |
-            ./SignOutput/rustdesk-*.msi
-            ./SignOutput/rustdesk-*.exe
+            ./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.msi
+            ./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe
+
+      # Separate steps, in this order, as upstream does: the action uploads a
+      # step's files concurrently, and a client that finds the metadata must
+      # also find the installers it points to.
+      - name: Publish the update metadata signature
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        if: github.event_name == 'push' || inputs.publish-release
+        with:
+          prerelease: false
+          fail_on_unmatched_files: true
+          tag_name: ${{ env.VERSION }}
+          files: ./SignOutput/rustdesk-update.json.sig
+
+      - name: Publish the update metadata
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        if: github.event_name == 'push' || inputs.publish-release
+        with:
+          prerelease: false
+          fail_on_unmatched_files: true
+          tag_name: ${{ env.VERSION }}
+          files: ./SignOutput/rustdesk-update.json
       # >>> end DataSoftware <<<

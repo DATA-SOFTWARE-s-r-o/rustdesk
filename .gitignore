@@ -65,3 +65,5 @@ flutter/web/
 !flutter/assets/icon.png
 !.github/datasoftware/logo-source.png
 # <<< DataSoftware custom client <<<
+# Local git worktrees
+.worktrees/

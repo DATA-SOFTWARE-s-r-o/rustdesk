@@ -8,8 +8,9 @@
 #
 # 1. published-release: the release is what /releases/latest returns, both in
 #    this repository and in the one this tag's clients ask (UPDATE_OWNER /
-#    UPDATE_REPO), and both files download from the exact URLs the updater
-#    builds.
+#    UPDATE_REPO), and both installers download from the exact URLs the updater
+#    builds - plus, for a release with the signed updater (1.5.3-1 on), the
+#    rustdesk-update.json(.sig) those clients read first.
 # 2. customer-pc: a clean Windows machine installs the PREVIOUS release from its
 #    MSI, nobody touches it, and it must end up on the new release through the
 #    auto-updater alone.
@@ -103,8 +104,28 @@ jobs:
               fail=1
               continue
             fi
-            for ext in exe msi; do
-              asset="rustdesk-$EXPECT-x86_64.$ext"
+            # Clients from 1.5.3-1 on read the signed metadata first; older
+            # ones only the two installers.
+            files="exe msi"
+            if gh api "repos/$GITHUB_REPOSITORY/contents/src/updater/artifact.rs?ref=$EXPECT" --jq .content 2>/dev/null \
+                | base64 -d | grep -q 'rustdesk-update.json'; then
+              files="exe msi json json.sig"
+              meta=$(curl -sSL --max-time 120 "https://github.com/$repo/releases/download/$EXPECT/rustdesk-update.json")
+              if jq -e --arg v "$EXPECT" --arg p "https://github.com/$owner/$name/releases/download/$EXPECT/" '
+                  .version == $v and .release_id == $v and
+                  ([.artifacts[] | select(.platform == "windows" and .arch == "x86_64") | .format] | sort) == ["exe", "msi"] and
+                  all(.artifacts[]; .url == $p + .file_name)' <<<"$meta" >/dev/null; then
+                echo "ok  rustdesk-update.json names $EXPECT and installers under $owner/$name"
+              else
+                echo "::error::$repo: rustdesk-update.json does not describe $EXPECT under $owner/$name: $meta"
+                fail=1
+              fi
+            fi
+            for ext in $files; do
+              case "$ext" in
+                json*) asset="rustdesk-update.$ext" ;;
+                *) asset="rustdesk-$EXPECT-x86_64.$ext" ;;
+              esac
               want=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .size' <<<"$rel")
               url="https://github.com/$repo/releases/download/$EXPECT/$asset"
               headers=$(curl -sSIL --max-time 120 "$url" | tr -d '\r') || true

@@ -121,49 +121,145 @@ if ds:
 # --------------------------------------------------------------------------
 # 4. The contract with upstream's updater
 # --------------------------------------------------------------------------
+# Since 1.5.3 (upstream #15914) a client reads the release's signed
+# rustdesk-update.json and installs only what it lists. Every piece of that
+# chain is pinned to rustdesk/rustdesk and RustDesk's key upstream; each check
+# below is one place where an upstream merge silently strands every installed
+# DataSoftware client, as #15529 did to 1.5.0-1.
+def code_only(text):
+    """The source before its #[cfg(test)] module: the tests in these files
+    name rustdesk/rustdesk on purpose, as URLs that must be refused."""
+    if text is None:
+        return None
+    return text.split("#[cfg(test)]", 1)[0]
+
+
 updater = read("src/updater.rs")
-if updater:
-    check(
-        "updater still builds rustdesk-<version>-<arch>.<ext> asset names",
-        "rustdesk-{}-{}.{}" in updater,
-        "if upstream changed the asset name, the build workflow must publish "
-        "the new name instead",
-    )
-    check(
-        "updater still derives the download URL by replacing 'tag'",
-        'replace("tag", "download")' in updater,
-        "fetch_latest_release_url() returns a .../releases/tag/<v> URL "
-        "specifically because of this",
-    )
+artifact = code_only(read("src/updater/artifact.rs"))
+common = read("src/common.rs")
+metadata_rs = read("src/update_metadata.rs")
+signer = read("res/update/generate_update_metadata.py")
+windows_wf = read(".github/workflows/datasoftware-windows.yml")
+if updater and artifact and common and metadata_rs:
     check(
         "updater still honours allow-auto-update",
         "OPTION_ALLOW_AUTO_UPDATE" in updater,
         "that is the option apply_builtin_config() enables",
+    )
+    check(
+        "the update check parses our release URLs",
+        '[UPDATE_OWNER, UPDATE_REPO, "releases", "tag", release_id]' in common
+        and '"rustdesk", "rustdesk", "releases"' not in code_only(common),
+        "release_id_from_update_url() in src/common.rs must match the URL "
+        "fetch_latest_release_url() returns, or no update is ever found",
+    )
+    check(
+        "release ids with our -N build suffix are accepted",
+        "crate::datasoftware::upstream_base_version(display_version)" in common,
+        "upstream's display_version_from_release_id() takes only X.Y.Z and "
+        "refuses every 1.5.3-N release",
+    )
+    check(
+        "the signed metadata is fetched from our release",
+        "crate::datasoftware::release_download_prefix(&release_id)" in artifact
+        and "github.com/rustdesk/rustdesk" not in artifact,
+        "src/updater/artifact.rs must read rustdesk-update.json from, and "
+        "accept installers only under, our own release",
     )
     # Upstream 1.5.0 (#15529) only lets the updater download from
     # rustdesk/rustdesk. Merged as is, every DataSoftware client rejects its own
     # update URL and never updates again (that is what happened to 1.5.0-1).
     check(
         "the updater's download URL check accepts our repository",
-        "owner != crate::datasoftware::UPDATE_OWNER" in updater
-        and "repo != crate::datasoftware::UPDATE_REPO" in updater,
+        "owner != crate::datasoftware::UPDATE_OWNER" in artifact
+        and "repo != crate::datasoftware::UPDATE_REPO" in artifact,
         "get_update_download_file_from_url() must compare against "
         "UPDATE_OWNER/UPDATE_REPO from src/datasoftware.rs",
     )
     check(
         "the updater does not hard-code rustdesk/rustdesk as the owner",
-        re.search(r'owner\s*!=\s*"rustdesk"', updater) is None,
+        re.search(r'owner\s*!=\s*"rustdesk"', updater + artifact) is None,
         "an upstream merge brought the hard-coded owner back; clients would "
         "refuse every DataSoftware update",
     )
-    # this_build_can_update_to_its_next_release() calls this function; if
-    # upstream adds or swaps a check on the download URL, that test no longer
-    # covers what the client really does.
+    # The unit tests in src/datasoftware.rs repeat these steps; if upstream
+    # reshapes them, those tests no longer cover what the client really does.
     check(
-        "check_update() still validates the download URL only through "
-        "get_download_file_from_url()",
-        "get_download_file_from_url(&download_url)" in updater,
-        "re-read check_update() and update the test in src/datasoftware.rs",
+        "check_update() still takes the installer only from the signed metadata",
+        "verified_update_artifact_from_release_page_url(&update_url, &query)" in updater
+        and "get_update_download_file_from_url(download_url)" in updater,
+        "re-read check_update() and update the tests in src/datasoftware.rs",
+    )
+    check(
+        "the metadata check is still built the way our tests rebuild it",
+        "release_id_from_update_url(update_url)" in artifact
+        and "display_version_from_release_id(&release_id)" in artifact
+        and "rustdesk-update.json" in artifact
+        and "verify_update_metadata(" in artifact,
+        "re-read verified_update_artifact_from_release_page_url() and update "
+        "this_build_accepts_the_signed_release_it_ships_with()",
+    )
+    # The key: ours in the client, the same id in the signer, the same bytes in
+    # the workflow (whose check-key step ties the secret to them).
+    key = re.search(
+        r'TrustedUpdateKey\s*\{\s*key_id:\s*"([^"]+)".*?public_key:\s*\[([^\]]+)\]',
+        metadata_rs,
+        re.S,
+    )
+    key_id = key.group(1) if key else None
+    key_b64 = None
+    if key:
+        import base64
+
+        key_b64 = base64.b64encode(
+            bytes(int(b) for b in key.group(2).split(",") if b.strip())
+        ).decode("ascii")
+    check(
+        "the client trusts our update-signing key, and only ours",
+        key_id == "datasoftware-2026-ed25519"
+        and len(re.findall(r'TrustedUpdateKey\s*\{\s*key_id:\s*"', metadata_rs)) == 1
+        and key_b64 == "rLXWSxGq4aISi4f/DjlcUIaqDcSWMkGExYlXYP/WqXo=",
+        "with RustDesk's key (or none of ours) no DataSoftware release ever "
+        "verifies; see DATASOFTWARE_BUILD.md, 'Update signing key'",
+    )
+    check(
+        "the signer uses the key id the client trusts",
+        signer is not None and ('KEY_ID = "%s"' % key_id) in signer,
+        "res/update/generate_update_metadata.py would sign under an id the "
+        "client does not know",
+    )
+    check(
+        "the release workflow signs and publishes the update metadata",
+        windows_wf is not None
+        and "secrets.DATASOFTWARE_UPDATE_ED25519_SEED" in windows_wf
+        and ("RUSTDESK_UPDATE_ED25519_PUBLIC_KEY: %s" % key_b64) in windows_wf
+        and "generate_update_metadata.py check-key" in windows_wf
+        and "--artifact windows x86_64 exe" in windows_wf
+        and "--artifact windows x86_64 msi" in windows_wf
+        and "files: ./SignOutput/rustdesk-update.json.sig" in windows_wf
+        and "files: ./SignOutput/rustdesk-update.json\n" in windows_wf.replace("\r\n", "\n"),
+        "a release without rustdesk-update.json(.sig) is invisible to every "
+        "client from 1.5.3-1 on",
+    )
+    check(
+        "the release workflow proves this build accepts its own signed release",
+        windows_wf is not None
+        and "datasoftware::tests::this_build_accepts_the_signed_release_it_ships_with" in windows_wf
+        and ds is not None
+        and "fn this_build_accepts_the_signed_release_it_ships_with" in ds,
+        "the signer agreeing with itself does not prove the client agrees",
+    )
+    # Clients up to 1.5.0-3 never read the metadata: they append
+    # rustdesk-<tag>-x86_64.<exe|msi> to the tag URL with "tag" replaced by
+    # "download". Every release has to keep serving them.
+    check(
+        "releases still carry the installers clients up to 1.5.0-3 download",
+        windows_wf is not None
+        and "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.exe" in windows_wf
+        and "./SignOutput/rustdesk-${{ env.VERSION }}-${{ env.ARCH }}.msi" in windows_wf
+        and ds is not None
+        and 'tag.contains("tag")' in ds,
+        "the ~30 machines still on 1.5.0-x would never update again",
     )
     check(
         "a unit test proves this build accepts its next release",
@@ -171,7 +267,12 @@ if updater:
         "1.5.0-1 shipped without one and never updated again",
     )
 else:
-    check("src/updater.rs exists", False, "the Windows auto-updater is gone")
+    check(
+        "the updater sources exist",
+        False,
+        "src/updater.rs, src/updater/artifact.rs, src/common.rs or "
+        "src/update_metadata.rs is gone; the Windows auto-updater changed shape",
+    )
 
 # --------------------------------------------------------------------------
 # 5. The settings maps the built-in config writes into
@@ -461,7 +562,7 @@ updater_src = read("src/updater.rs")
 if updater_src is not None:
     check(
         "a launched update is not relaunched in a tight loop",
-        re.search(r"if\s+!manually\s*&&\s*crate::datasoftware::update_recently_attempted\(version\)", updater_src)
+        re.search(r"if\s+!manually\s*&&\s*crate::datasoftware::update_recently_attempted\(&artifact\.version\)", updater_src)
         and "crate::datasoftware::record_update_attempt(version)" in updater_src,
         "an update that does not take would be relaunched on every service "
         "start, about once a minute",
